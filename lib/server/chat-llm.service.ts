@@ -9,12 +9,21 @@ import { createChatMessagesService } from './chat-messages.service';
 import { Address } from 'viem';
 import trackNewMessage from '../stack/trackNewMessage';
 import { AI_MODEL } from '../consts';
+import getZoraPfpLink from '../zora/getZoraPfpLink';
 
 export const ChatMessagesSchema = z.object({
   messages: z.array(
     z.object({
       content: z.string(),
       role: z.enum(['user', 'assistant']),
+      toolInvocations: z.array(
+        z.object({
+          toolName: z.string(),
+          state: z.string(),
+          result: z.string(),
+          toolCallId: z.string(),
+        })
+      ).optional(),
     }),
   ),
 });
@@ -87,6 +96,30 @@ class ChatLLMService {
       maxTokens: settings.maxTokens,
       temperature: settings.temperature,
       messages,
+      experimental_toolCallStreaming: true,
+      tools: {
+        getConnectedProfile: {
+          name: "getConnectedProfile",
+          description: "Get the connected profile for a coinbase smart wallet. Call this whenever you need to know the connected profile, for example when a customer asks 'What is my Zora profile'",
+          parameters: z.object({
+            address: z.string().describe("The connected coinbase smart wallet."),
+          }),
+          execute: async ({ address }) => {
+            const response = await fetch(`https://api.myco.wtf/api/profile?address=${address}`)
+            if (!response.ok) {
+              return "I couldn't find your profile.";
+            }
+            const data = await response.json();
+            return `Here's your connected Zora profile.
+            <img src="${getZoraPfpLink(data.zoraProfile)}" alt="PFP" style="border-radius: 99999px; width: 64px; height: 64px;" />
+            - Name: ${data.zoraProfile.displayName} <br />
+            - Followers: ${data.zoraProfile.totalFollowers} <br />
+            - Following: ${data.zoraProfile.totalFollowing} <br />
+            - View Profile: <a href="https://profile.myco.wtf/${data.zoraProfile.address}">https://profile.myco.wtf/${data.zoraProfile.address}</a>
+            `;
+          },
+        },
+      },
     });
 
     const stream = result.toAIStream({
